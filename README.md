@@ -1,3 +1,3 @@
-# Todo
+Todo
 
-# サーバ起動は「$ node server.js」
+サーバ起動はcmdで「$ node server.js」
