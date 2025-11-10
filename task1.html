@@ -177,7 +177,21 @@
       // setTimeout の上限は環境依存だが安全のため負でないかを確認
       if (delay > 0 && delay < 2147483647) {
         scheduledTimers[task.id] = setTimeout(() => {
+          // ローカル通知
           sendTaskNotification(task);
+          
+          // サーバーへプッシュ通知リクエストを送信
+          fetch('/sendNotification', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: 'タスクの時間です',
+              body: task.text,
+            }),
+          }).catch(err => console.error('Push notification send failed:', err));
+
           // mark notified to avoid duplicate immediate-notify on reload
           task.notified = true;
           saveTasksToStorage();
