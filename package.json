@@ -1,0 +1,14 @@
+{
+  "name": "task-notify-server",
+  "version": "0.1.0",
+  "description": "Simple server to send Web Push notifications for task app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
+    "web-push": "^3.5.0"
+  }
+}
