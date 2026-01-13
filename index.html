@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>トップページ - タスク管理</title>
+  <style>
+    body{font-family: sans-serif;background:#f4f4f4;margin:0;padding:0}
+    .container{max-width:900px;margin:36px auto;background:#fff;padding:20px;border-radius:8px;box-shadow:0 2px 8px #0001}
+    h1{text-align:center}
+    .btn-row{display:flex;gap:12px;justify-content:center;margin:24px 0}
+    .main-btn{padding:14px 20px;background:#1976d2;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer}
+    .chat-wrap{max-width:640px;margin:18px auto}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>アプリメニュー</h1>
+    <div class="btn-row">
+      <a href="/task1.html#showTasks"><button class="main-btn">タスク一覧表示</button></a>
+      <a href="/task1.html#notifications"><button class="main-btn">通知管理</button></a>
+    </div>
+    <p style="text-align:center;color:#666">必要な画面をクリックしてください。</p>
+  </div>
+  <div class="chat-wrap">
+    <!-- Chat UI (copied from task1.html) -->
+  </div>
+  <script>
+  (function(){
+    const chatWrap = document.createElement('div');
+    chatWrap.style.maxWidth = '640px';
+    chatWrap.style.margin = '12px auto';
+    chatWrap.style.background = '#fff';
+    chatWrap.style.padding = '12px';
+    chatWrap.style.borderRadius = '8px';
+    chatWrap.style.boxShadow = '0 2px 8px #0001';
+
+    const h3 = document.createElement('h3'); h3.textContent = 'チャットボット'; chatWrap.appendChild(h3);
+    const msgList = document.createElement('div'); msgList.id = 'chat-messages'; msgList.style.maxHeight = '240px'; msgList.style.overflow = 'auto'; msgList.style.border = '1px solid #eee'; msgList.style.padding = '8px'; msgList.style.marginBottom = '8px'; chatWrap.appendChild(msgList);
+
+    const inputRow = document.createElement('div'); inputRow.style.display = 'flex'; inputRow.style.gap = '8px';
+    const chatInput = document.createElement('input'); chatInput.type='text'; chatInput.placeholder='チャットメッセージを入力'; chatInput.style.flex='1';
+    const chatSend = document.createElement('button'); chatSend.textContent='送信';
+    const attachSummaryLabel = document.createElement('label'); attachSummaryLabel.style.display='flex'; attachSummaryLabel.style.alignItems='center'; attachSummaryLabel.style.gap='6px';
+    const attachSummaryCheckbox = document.createElement('input'); attachSummaryCheckbox.type='checkbox'; attachSummaryCheckbox.id='chat-attach-summary';
+    attachSummaryLabel.appendChild(attachSummaryCheckbox); attachSummaryLabel.appendChild(document.createTextNode('タスク要約を添付'));
+    inputRow.appendChild(chatInput); inputRow.appendChild(chatSend); chatWrap.appendChild(inputRow);
+    chatWrap.appendChild(attachSummaryLabel);
+
+    document.querySelector('.chat-wrap').appendChild(chatWrap);
+
+    function appendMessage(sender, text){
+      const el = document.createElement('div');
+      el.style.margin = '6px 0';
+      el.innerHTML = `<strong>${sender}:</strong> ${text}`;
+      msgList.appendChild(el);
+      msgList.scrollTop = msgList.scrollHeight;
+    }
+
+    // load history
+    try {
+      const hist = JSON.parse(localStorage.getItem('chat_history_v1') || '[]');
+      hist.forEach(h => appendMessage(h.sender, h.text));
+    } catch(e){}
+
+    function pushHistory(sender, text){
+      try{
+        const h = JSON.parse(localStorage.getItem('chat_history_v1') || '[]');
+        h.push({ sender, text, t: Date.now() });
+        localStorage.setItem('chat_history_v1', JSON.stringify(h.slice(-200)));
+      }catch(e){}
+    }
+
+    async function sendChat(msg){
+      appendMessage('あなた', msg);
+      pushHistory('あなた', msg);
+      try{
+        let payload = { message: msg };
+        if (attachSummaryCheckbox.checked) {
+          try {
+            const raw = localStorage.getItem('tasks_v1');
+            const allTasks = raw ? JSON.parse(raw) : {};
+            const now = Date.now();
+            const upcoming = [];
+            Object.keys(allTasks || {}).forEach(dateKey => {
+              (allTasks[dateKey] || []).forEach(t => {
+                const when = new Date(`${dateKey}T${String(t.hour).padStart(2,'0')}:${String(t.minute).padStart(2,'0')}:00`).getTime();
+                if (when >= now) {
+                  upcoming.push({ date: dateKey, hour: t.hour, minute: t.minute, text: t.text });
+                }
+              });
+            });
+            payload.context = { upcomingCount: upcoming.length, upcomingSample: upcoming.slice(0,5) };
+          } catch(e) { /* ignore */ }
+        }
+        const resp = await fetch((location.protocol === 'http:'||location.protocol==='https:'?window.location.origin:'http://localhost:3000') + '/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if (!resp.ok) {
+          const text = await resp.text().catch(()=>String(resp.status));
+          appendMessage('bot', '[エラー] ' + text);
+          pushHistory('bot', '[エラー] ' + text);
+          return;
+        }
+        const data = await resp.json().catch(()=>({ reply: 'no-json-response' }));
+        const reply = data.reply || data.text || JSON.stringify(data);
+        appendMessage('bot', reply);
+        pushHistory('bot', reply);
+      }catch(e){
+        appendMessage('bot', '[通信エラー] ' + (e && e.message ? e.message : e));
+        pushHistory('bot', '[通信エラー] ' + (e && e.message ? e.message : e));
+      }
+    }
+
+    // Force selection-only chat mode
+    let chatMode = 'choice';
+    const modeToggle = document.createElement('label'); modeToggle.style.marginLeft='8px'; modeToggle.textContent='選択型チャット（固定）: ';
+    const modeCheckbox = document.createElement('input'); modeCheckbox.type='checkbox'; modeCheckbox.checked = true; modeCheckbox.disabled = true;
+    modeToggle.appendChild(modeCheckbox); chatWrap.appendChild(modeToggle);
+
+    const choices = [{id:'notify',label:'今すぐ全通知を飛ばす', action:'sendAllNow'},{id:'today',label:'今日のタスク', action:'showToday'},{id:'help',label:'使い方',action:'help'}];
+    function renderChoiceButtons(){
+      const cdiv = document.createElement('div'); cdiv.style.display='flex'; cdiv.style.gap='8px'; cdiv.style.marginTop='6px';
+      choices.forEach(ch => {
+        const b = document.createElement('button');
+        b.textContent = ch.label; b.className='main-btn'; b.style.padding='6px 10px';
+        b.onclick = async () => {
+          appendMessage('あなた', ch.label); pushHistory('あなた', ch.label);
+          // selection-only: handle actions locally
+          if (ch.action === 'sendAllNow' && window.debug_sendAllNow) { appendMessage('bot','送信処理を実行します'); pushHistory('bot','sendAll'); await window.debug_sendAllNow(); }
+          else if (ch.action === 'showToday') { appendMessage('bot','今日のタスクを表示してください（期限一覧）'); }
+          else appendMessage('bot','操作: ' + ch.label);
+        };
+        cdiv.appendChild(b);
+      });
+      msgList.appendChild(cdiv);
+    }
+    renderChoiceButtons();
+
+    // Replace sendChat behavior to be selection-only: typing shows the choices
+    chatSend.onclick = () => { const v = chatInput.value.trim(); if(!v) return; chatInput.value=''; appendMessage('あなた', v); pushHistory('あなた', v); renderChoiceButtons(); };
+    chatInput.addEventListener('keypress', (e)=>{ if(e.key === 'Enter'){ chatSend.click(); } });
+  })();
+  </script>
+</body>
+</html>
