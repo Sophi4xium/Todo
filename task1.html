@@ -3,10 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Web App Manifest -->
+  <link rel="manifest" href="/manifest.json">
+  <!-- iOS specific: enable standalone display when added to Home Screen -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="タスク管理">
+  <link rel="apple-touch-icon" href="/test.jpg">
+  <meta name="theme-color" content="#1976d2">
   <title>タスク管理アプリ</title>
   <style>
     body { font-family: sans-serif; background: #f4f4f4; margin: 0; padding: 0; }
-    .container { max-width: 400px; margin: 40px auto; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 2px 8px #0001; }
+    html, body { width: 100%; }
+    .container { box-sizing: border-box; width: calc(100% - 32px); max-width: 1100px; margin: 24px auto; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 2px 8px #0001; }
     h1 { text-align: center; }
     form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
     input[type="text"], input[type="datetime-local"], input[type="number"] { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
@@ -16,6 +25,48 @@
     li:last-child { border-bottom: none; }
     .completed { text-decoration: line-through; color: #888; }
     .delete-btn { background: #e53935; margin-left: 8px; }
+    /* Task grid styles */
+    .task-grid { display: grid; grid-template-columns: 80px 1fr 70px 70px 60px 60px; gap: 8px; align-items: center; }
+    .task-grid .time { font-weight: 600; color: #333; white-space: nowrap; }
+    .task-grid .text { overflow: visible; white-space: normal; word-break: break-word; }
+    .task-grid .meta { font-size: 13px; color: #555; text-align: center; }
+    .small-btn { padding: 4px 8px; font-size: 13px; }
+    .task-grid.header { background: #fafafa; font-weight: 700; border-bottom: 2px solid #e0e0e0; }
+  </style>
+  <style>
+    /* grid layout for task rows */
+    .task-grid{
+      display:grid;
+      grid-template-columns: 80px minmax(180px, 1fr) 70px 70px 60px 60px;
+      gap:8px;
+      align-items:center;
+      padding:6px 8px;
+      border-bottom:1px solid #eee;
+    }
+    .task-grid .time{font-weight:600;color:#333}
+    .task-grid .text{overflow:visible;white-space:normal;word-break:break-word}
+    .task-grid .meta{color:#666;text-align:center}
+    /* collapse grid on narrow screens so content fits without zooming */
+    @media (max-width: 700px) {
+      .container { width: calc(100% - 20px); padding: 12px; }
+      .task-grid { grid-template-columns: 64px 1fr; grid-auto-rows: auto; gap:6px; }
+      .task-grid .meta, .task-grid .small-btn { grid-column: 2; justify-self: start; }
+      .task-grid .time { grid-column: 1; }
+      .task-grid.header { grid-template-columns: 64px 1fr; }
+    }
+    /* vertical card layout for each task (more readable) */
+    .task-vertical{display:flex;flex-direction:column;gap:6px;padding:10px;border:1px solid #f0f0f0;border-radius:6px;background:#fff}
+    .tv-row{display:flex;gap:8px;align-items:center}
+    .tv-label{min-width:70px;color:#666;font-size:13px}
+    .tv-value{flex:1;color:#222}
+    .tv-actions{display:flex;gap:8px;}
+    /* compact date header and check button */
+    .date-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0}
+    .date-row h2{margin:0;font-size:16px}
+    .check-btn{padding:6px 10px;font-size:13px;border-radius:6px;background:#1976d2;color:#fff;border:none;cursor:pointer}
+    .check-btn.small{padding:4px 8px;font-size:12px}
+    .small-btn{padding:4px 8px;font-size:12px}
+    .delete-btn{background:#ffdddd;border:1px solid #f99}
   </style>
 </head>
 <body>
@@ -24,44 +75,42 @@
     <form id="task-form">
       <input type="text" id="task-input" placeholder="新しいタスクを入力" required />
       <input type="datetime-local" id="datetime-input" required />
-      <label>重要度:
-        <input type="number" id="priority-input" min="1" max="10" value="5" required />
-      </label>
-      <label>達成難易度:
-        <input type="number" id="difficulty-input" min="1" max="10" value="5" required />
+        <label>重要度:
+          <select id="priority-input" required style="padding:8px;border:1px solid #ccc;border-radius:4px;">
+            <option value="">選択</option>
+          </select>
+        </label>
+        <label>達成難易度:
+          <select id="difficulty-input" required style="padding:8px;border:1px solid #ccc;border-radius:4px;">
+            <option value="">選択</option>
+          </select>
+        </label>
+      <label style="flex-basis:100%;">
+        メモ:
+        <textarea id="memo-input" placeholder="メモ（任意）" rows="2" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #ccc;border-radius:4px;"></textarea>
       </label>
       <button type="submit">追加</button>
     </form>
     <div id="tasks-by-date"></div>
   </div>
   <script>
-    // sort control
-    (function(){
-      const sortWrap = document.createElement('div');
-      sortWrap.style.maxWidth = '400px';
-      sortWrap.style.margin = '8px auto';
-      sortWrap.style.display = 'flex';
-      sortWrap.style.gap = '8px';
-      sortWrap.style.alignItems = 'center';
-      const label = document.createElement('label');
-      label.textContent = '表示順:';
-      const sel = document.createElement('select');
-      sel.id = 'sort-select';
-      ['時間順','優先度順','重要度順'].forEach((t,i) => {
-        const o = document.createElement('option'); o.value = i; o.text = t; sel.appendChild(o);
-      });
-      sortWrap.appendChild(label);
-      sortWrap.appendChild(sel);
-      document.body.insertBefore(sortWrap, document.querySelector('.container').nextSibling);
-    })();
+    // base server URL used across modules (make global so chat and other code can use it)
+    const serverBase = (location.protocol === 'http:' || location.protocol === 'https:') ? window.location.origin : 'http://localhost:3000';
+    // (sort control will be created below the range selector)
     // --- Web Push helper UI & logic (debug-friendly) ---
     (function(){
       const pushContainer = document.createElement('div');
+      pushContainer.id = 'notifications';
       pushContainer.style.marginTop = '12px';
       const pushBtn = document.createElement('button');
       pushBtn.id = 'enable-push-btn';
       pushBtn.textContent = 'スマホへプッシュを有効化';
       pushContainer.appendChild(pushBtn);
+  const sendAllBtn = document.createElement('button');
+  sendAllBtn.id = 'send-all-now-btn';
+  sendAllBtn.textContent = '今すぐ全通知を飛ばす';
+  sendAllBtn.style.marginLeft = '8px';
+  pushContainer.appendChild(sendAllBtn);
       // status area for quick debugging on the page
       const status = document.createElement('div');
       status.id = 'push-debug-status';
@@ -71,10 +120,18 @@
       pushContainer.appendChild(status);
       document.querySelector('.container').appendChild(pushContainer);
 
+      // determine server base URL; if page is opened via file://, fall back to localhost:3000
+      const serverBase = (location.protocol === 'http:' || location.protocol === 'https:') ? window.location.origin : 'http://localhost:3000';
+
       function setStatus(msg, isError) {
         console.log('[push-debug]', msg);
         status.textContent = msg;
         status.style.color = isError ? '#b00020' : '#0b6623';
+      }
+
+      // If opened via file://, show a prominent hint because fetch() needs http/https origin
+      if (location.protocol === 'file:') {
+        setStatus('警告: このページは file:// で開かれています。サーバ経由で動作させる必要があります。ブラウザで http://localhost:3000/task1.html を開いてください。', true);
       }
 
       async function urlBase64ToUint8Array(base64String) {
@@ -96,12 +153,13 @@
           return;
         }
         try {
-          const reg = await navigator.serviceWorker.register('./service-worker.js');
+          // Register service worker at root scope so PWA/home-screen mode can use it
+          const reg = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
           setStatus('Service Worker 登録成功');
           console.log('Service Worker registered', reg);
           // fetch VAPID public key from server
           setStatus('サーバーから VAPID 公開鍵を取得中...');
-          const resp = await fetch('/vapidPublicKey');
+          const resp = await fetch(serverBase + '/vapidPublicKey');
           if (!resp.ok) throw new Error('/vapidPublicKey の取得に失敗: ' + resp.status);
           const vapidPublicKey = await resp.text();
           setStatus('VAPID 公開鍵取得成功');
@@ -110,7 +168,7 @@
           const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
           console.log('Subscription', sub);
           setStatus('購読オブジェクトをサーバへ送信中...');
-          const r = await fetch('/subscribe', {
+          const r = await fetch(serverBase + '/subscribe', {
             method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(sub)
           });
           if (!r.ok) throw new Error('/subscribe に失敗: ' + r.status);
@@ -122,7 +180,708 @@
           alert('サブスクライブに失敗しました: ' + (e && e.message ? e.message : e));
         }
       };
+
+      // Send all tasks as notifications now (iterate stored tasks and POST each to server)
+      sendAllBtn.onclick = async () => {
+        setStatus('全通知送信を開始します...');
+        try {
+          // tasks may be in-memory or in localStorage
+          let allTasks = {};
+          try { const raw = localStorage.getItem('tasks_v1'); if (raw) allTasks = JSON.parse(raw) || {}; } catch (e) { allTasks = window.tasks || {}; }
+          // flatten
+          const payloads = [];
+          Object.keys(allTasks).forEach(dateKey => {
+            (allTasks[dateKey] || []).forEach(t => {
+              payloads.push({ title: 'タスクの時間です', task: Object.assign({}, t, { date: dateKey }), url: `/task1.html?task=${encodeURIComponent(t.id)}` });
+            });
+          });
+          if (payloads.length === 0) {
+            setStatus('送信するタスクが見つかりませんでした。');
+            return;
+          }
+          setStatus(`合計 ${payloads.length} 件の通知を送信中...`);
+          const results = await Promise.allSettled(payloads.map(p => fetch(serverBase + '/sendNotification', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(p) })));
+          const fulfilled = results.filter(r => r.status === 'fulfilled').length;
+          const rejected = results.filter(r => r.status === 'rejected').length;
+          setStatus(`送信完了: 成功 ${fulfilled} 件, 失敗 ${rejected} 件`);
+          alert(`送信完了: 成功 ${fulfilled} 件, 失敗 ${rejected} 件`);
+        } catch (e) {
+          console.error(e);
+          setStatus('全通知送信中にエラーが発生しました: ' + (e && e.message ? e.message : e), true);
+          alert('エラー: ' + (e && e.message ? e.message : e));
+        }
+      };
+
+      // --- Daily reminder scheduler UI ---
+      const dailyWrap = document.createElement('div');
+      dailyWrap.style.marginTop = '8px';
+      dailyWrap.style.display = 'flex';
+      dailyWrap.style.flexDirection = 'column';
+      dailyWrap.style.alignItems = 'stretch';
+      dailyWrap.style.gap = '8px';
+
+      const timeLabel = document.createElement('label');
+      timeLabel.textContent = '毎日のチェック時刻:';
+      const timeInput = document.createElement('input');
+      timeInput.type = 'time';
+      timeInput.id = 'daily-reminder-time';
+      timeInput.value = localStorage.getItem('dailyReminderTime') || '09:00';
+
+      const windowSelect = document.createElement('select');
+      windowSelect.id = 'daily-reminder-window';
+      [['24時間', '1440'], ['12時間', '720'], ['3時間', '180'], ['1時間', '60'], ['10分', '10']].forEach(([label, val]) => {
+        const o = document.createElement('option'); o.value = val; o.text = label; windowSelect.appendChild(o);
+      });
+      const savedWindow = localStorage.getItem('dailyReminderWindow');
+      if (savedWindow) windowSelect.value = savedWindow;
+
+      const scheduleBtn = document.createElement('button');
+      scheduleBtn.id = 'schedule-daily-btn';
+      scheduleBtn.textContent = 'スケジュールを保存';
+
+      const sendRemNowBtn = document.createElement('button');
+      sendRemNowBtn.id = 'send-reminders-now-btn';
+      sendRemNowBtn.textContent = '今すぐ期限内チェックして通知';
+
+  // rangeDays: how many days ahead from the scheduled time to include
+  // label with inline select for (1~7で選択)
+  const rangeDaysLabel = document.createElement('label');
+  rangeDaysLabel.textContent = '日以内の通知を飛ばす';
+  const rangeDaysSelect = document.createElement('select');
+  rangeDaysSelect.id = 'daily-range-days';
+  rangeDaysSelect.style.marginRight = '6px';
+  for (let i = 1; i <= 7; i++) { const opt = document.createElement('option'); opt.value = String(i); opt.text = String(i); rangeDaysSelect.appendChild(opt); }
+  const savedRange = localStorage.getItem('dailyRangeDays'); if (savedRange) rangeDaysSelect.value = savedRange;
+
+  // Button to send notifications for selected N days
+  const rangeSendBtn = document.createElement('button');
+  rangeSendBtn.type = 'button';
+  rangeSendBtn.id = 'range-send-btn';
+  rangeSendBtn.textContent = '送信';
+
+
+
+    // arrange into vertical rows for better readability (compact notify-only UI)
+    const row1 = document.createElement('div'); row1.style.display='flex'; row1.style.gap='8px'; row1.style.alignItems='center';
+    row1.appendChild(timeLabel); row1.appendChild(timeInput); row1.appendChild(windowSelect);
+    dailyWrap.appendChild(row1);
+
+    const row2 = document.createElement('div'); row2.style.display='flex'; row2.style.gap='8px'; row2.appendChild(scheduleBtn); row2.appendChild(sendRemNowBtn);
+    dailyWrap.appendChild(row2);
+
+    const row3 = document.createElement('div'); row3.style.display='flex'; row3.style.gap='8px'; row3.style.alignItems='center';
+    // place select before the label text
+    row3.appendChild(rangeDaysSelect); row3.appendChild(rangeDaysLabel); row3.appendChild(rangeSendBtn);
+    dailyWrap.appendChild(row3);
+      pushContainer.appendChild(dailyWrap);
+
+    // populate priority/difficulty selects in the main form
+    try {
+      const pr = document.getElementById('priority-input');
+      const df = document.getElementById('difficulty-input');
+      if (pr && pr.tagName === 'SELECT' && df && df.tagName === 'SELECT') {
+        for (let i = 1; i <= 10; i++) {
+          const o1 = document.createElement('option'); o1.value = String(i); o1.text = String(i); pr.appendChild(o1);
+          const o2 = document.createElement('option'); o2.value = String(i); o2.text = String(i); df.appendChild(o2);
+        }
+        pr.value = '5'; df.value = '5';
+      }
+    } catch(e){}
+
+    // --- 表示順 (移動済み): 表示基準と昇順/降順トグル ---
+    const sortWrap = document.createElement('div');
+    sortWrap.style.display = 'flex';
+    sortWrap.style.gap = '8px';
+    sortWrap.style.alignItems = 'center';
+    sortWrap.style.marginTop = '6px';
+
+    const sortLabel = document.createElement('label'); sortLabel.textContent = '表示順:';
+    const sortSelect = document.createElement('select'); sortSelect.id = 'sort-select';
+    [['時間順',0], ['重要度順',1], ['難易度順',2]].forEach(([t,v])=>{ const o=document.createElement('option'); o.value=String(v); o.text=t; sortSelect.appendChild(o); });
+
+    const orderLabel = document.createElement('label'); orderLabel.textContent = '並び順:';
+    const orderSelect = document.createElement('select'); orderSelect.id = 'sort-order';
+    const optDesc = document.createElement('option'); optDesc.value = 'desc'; optDesc.text = '降順';
+    const optAsc = document.createElement('option'); optAsc.value = 'asc'; optAsc.text = '昇順';
+    orderSelect.appendChild(optDesc); orderSelect.appendChild(optAsc);
+
+    // restore saved order if any
+    const savedOrder = localStorage.getItem('sortOrder'); if (savedOrder) orderSelect.value = savedOrder;
+    const savedSort = localStorage.getItem('sortSelect'); if (savedSort) sortSelect.value = savedSort;
+
+    sortSelect.onchange = () => { try { localStorage.setItem('sortSelect', sortSelect.value); } catch(e){}; renderTasks(); };
+    orderSelect.onchange = () => { try { localStorage.setItem('sortOrder', orderSelect.value); } catch(e){}; renderTasks(); };
+
+    sortWrap.appendChild(sortLabel); sortWrap.appendChild(sortSelect); sortWrap.appendChild(orderLabel); sortWrap.appendChild(orderSelect);
+    pushContainer.appendChild(sortWrap);
+
+    // --- 未達成リマインダー設定 ---
+    const failureLabel = document.createElement('label');
+    failureLabel.style.display = 'flex'; failureLabel.style.alignItems = 'center'; failureLabel.style.gap = '8px';
+    const failureCheckbox = document.createElement('input'); failureCheckbox.type = 'checkbox'; failureCheckbox.id = 'failure-reminder-enable';
+    failureLabel.appendChild(failureCheckbox);
+    const failureText = document.createElement('span'); failureText.textContent = '未達成タスクへの繰り返しリマインダーを有効にする'; failureLabel.appendChild(failureText);
+    // restore saved
+    try { if (localStorage.getItem('failureReminderEnabled') === '1') { failureCheckbox.checked = true; } } catch(e){}
+    pushContainer.appendChild(failureLabel);
+      // --- Test controls: select a task and start failure reminders immediately ---
+      const failureTestLabel = document.createElement('label');
+      failureTestLabel.textContent = 'テスト用タスク:';
+      failureTestLabel.style.marginLeft = '8px';
+      failureTestLabel.style.fontSize = '13px';
+      const failureTestSelect = document.createElement('select');
+      failureTestSelect.id = 'failure-test-select';
+      failureTestSelect.style.marginLeft = '8px';
+      failureTestSelect.style.minWidth = '260px';
+      failureTestSelect.title = 'テスト対象のタスクを選択';
+      const failureTestBtn = document.createElement('button');
+      failureTestBtn.id = 'failure-test-now-btn';
+      failureTestBtn.textContent = 'テスト: すぐ開始';
+      failureTestBtn.style.marginLeft = '8px';
+      pushContainer.appendChild(failureTestLabel);
+      pushContainer.appendChild(failureTestSelect);
+      pushContainer.appendChild(failureTestBtn);
+
+      function populateFailureTestSelect() {
+        try {
+          failureTestSelect.innerHTML = '';
+          const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.text = 'タスクを選択'; failureTestSelect.appendChild(placeholder);
+          // use tasks object if available, otherwise read from localStorage
+          let src = tasks;
+          try {
+            if (!src || Object.keys(src).length === 0) {
+              const raw = localStorage.getItem('tasks_v1');
+              src = raw ? JSON.parse(raw) : {};
+            }
+          } catch (e) { src = tasks || {}; }
+          let added = 0;
+          Object.keys(src || {}).forEach(dateKey => {
+            (src[dateKey] || []).forEach(t => {
+              const o = document.createElement('option');
+              o.value = t.id;
+              o.text = `${dateKey} ${String(t.hour).padStart(2,'0')}:${String(t.minute).padStart(2,'0')} ${t.text.length>30? t.text.slice(0,30)+'...':t.text}`;
+              failureTestSelect.appendChild(o);
+              added++;
+            });
+          });
+          if (added === 0) {
+            // no tasks available
+            failureTestSelect.innerHTML = '';
+            const o = document.createElement('option'); o.value = ''; o.text = 'テスト用のタスクがありません'; failureTestSelect.appendChild(o);
+            failureTestSelect.disabled = true;
+          } else {
+            failureTestSelect.disabled = false;
+          }
+        } catch (e) { console.error('populateFailureTestSelect error', e); }
+      }
+
+      failureTestBtn.onclick = () => {
+        const id = failureTestSelect.value;
+        if (!id) { alert('テスト用のタスクを選択してください'); return; }
+        // start immediately and persist schedule
+        try {
+          startFailureRemindersForTask(id);
+          const raw = localStorage.getItem('failureSchedules_v1') || '{}';
+          const obj = JSON.parse(raw);
+          obj[id] = { start: Date.now(), created: Date.now(), test: true };
+          localStorage.setItem('failureSchedules_v1', JSON.stringify(obj));
+          alert('テストリマインダーを開始しました（すぐ開始）');
+        } catch (e) { console.error('failure test start failed', e); alert('開始に失敗しました'); }
+      };
+
+      // Scheduler state
+      let dailyReminderTimer = null;
+      // Failure reminders state
+      const failureTimers = {}; // taskId -> intervalId
+      let failureRandomTimer = null;
+
+      function stopFailureReminders(taskId) {
+        try {
+          if (failureTimers[taskId]) { clearInterval(failureTimers[taskId]); delete failureTimers[taskId]; }
+        } catch(e){}
+      }
+
+      function startFailureRemindersForTask(taskId) {
+        if (failureTimers[taskId]) return;
+        let count = 0; const maxCount = 20; const intervalMs = 5 * 60 * 1000;
+        const iv = setInterval(() => {
+          count++;
+          // send mocked teasing message
+          try {
+            fetch(serverBase + '/sendNotification', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ title: 'タスク未達成', taskId: taskId, body: 'アハハ！残念だったネェ！', url: '/task1.html' }) }).catch(()=>{});
+          } catch(e){}
+          if (count >= maxCount) { clearInterval(iv); delete failureTimers[taskId];
+            // remove persisted schedule when finished
+            try { const raw = localStorage.getItem('failureSchedules_v1') || '{}'; const obj = JSON.parse(raw); if (obj[taskId]) { delete obj[taskId]; localStorage.setItem('failureSchedules_v1', JSON.stringify(obj)); } } catch(e){}
+          }
+        }, intervalMs);
+        failureTimers[taskId] = iv;
+      }
+
+      // Schedule a failure reminder sequence for a task: start next day at random 8/13/18
+      function scheduleFailureSequence(taskId) {
+        try {
+          const hours = [8,13,18];
+          const pick = hours[Math.floor(Math.random()*hours.length)];
+          const now = new Date();
+          const candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1, pick, 0, 0, 0);
+          const startTs = candidate.getTime();
+          // persist schedule
+          let obj = {};
+          try { obj = JSON.parse(localStorage.getItem('failureSchedules_v1') || '{}'); } catch(e) { obj = {}; }
+          obj[taskId] = { start: startTs, created: Date.now() };
+          localStorage.setItem('failureSchedules_v1', JSON.stringify(obj));
+          // set timeout to start the actual reminders
+          const delay = startTs - Date.now();
+          if (delay <= 0) {
+            // start immediately
+            startFailureRemindersForTask(taskId);
+          } else {
+            setTimeout(() => { startFailureRemindersForTask(taskId); }, delay);
+          }
+        } catch(e) { console.error('scheduleFailureSequence error', e); }
+      }
+
+      // Re-create scheduled failure sequences from localStorage on load
+      function loadFailureSchedules() {
+        try {
+          const raw = localStorage.getItem('failureSchedules_v1') || '{}';
+          const obj = JSON.parse(raw);
+          Object.keys(obj || {}).forEach(taskId => {
+            const entry = obj[taskId];
+            if (!entry || !entry.start) return;
+            const delay = Number(entry.start) - Date.now();
+            if (delay <= 0) {
+              // start immediately
+              startFailureRemindersForTask(taskId);
+            } else {
+              setTimeout(() => { startFailureRemindersForTask(taskId); }, delay);
+            }
+          });
+        } catch(e) { console.error('loadFailureSchedules error', e); }
+      }
+
+      // Expose failure-schedule helpers globally so other script sections can call them
+      try {
+        window.loadFailureSchedules = loadFailureSchedules;
+        window.startFailureRemindersForTask = startFailureRemindersForTask;
+        window.scheduleFailureSequence = scheduleFailureSequence;
+        window.stopFailureReminders = stopFailureReminders;
+      } catch(e) { /* ignore if not allowed */ }
+
+      function scheduleDailyFailureRandom() {
+        try { if (failureRandomTimer) { clearTimeout(failureRandomTimer); failureRandomTimer = null; } } catch(e){}
+        if (!failureCheckbox.checked) return;
+        const now = new Date(); const hours = [8,13,18];
+        const pick = hours[Math.floor(Math.random() * hours.length)];
+        let candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), pick, 0, 0, 0);
+        if (candidate.getTime() <= now.getTime()) candidate.setDate(candidate.getDate() + 1);
+        const delay = candidate.getTime() - now.getTime();
+        failureRandomTimer = setTimeout(() => {
+          // find missed (未達成) tasks whose scheduled time is before the candidate time
+          try {
+            const raw = localStorage.getItem('tasks_v1'); const all = raw ? JSON.parse(raw) : {};
+            Object.keys(all).forEach(dateKey => {
+              (all[dateKey] || []).forEach(t => {
+                const when = new Date(`${dateKey}T${String(t.hour).padStart(2,'0')}:${String(t.minute).padStart(2,'0')}:00`).getTime();
+                if (!t.completed && when < candidate.getTime()) {
+                  startFailureRemindersForTask(t.id);
+                }
+              });
+            });
+          } catch(e){}
+          // schedule next day's random start
+          failureRandomTimer = setTimeout(scheduleDailyFailureRandom, 24 * 60 * 60 * 1000);
+        }, delay);
+      }
+
+
+      function saveDailySettings() {
+        localStorage.setItem('dailyReminderTime', timeInput.value);
+        localStorage.setItem('dailyReminderWindow', windowSelect.value);
+        // persist selected range days only
+        try { localStorage.setItem('dailyRangeDays', rangeDaysSelect.value); } catch(e){}
+        setStatus('スケジュール設定を保存しました: ' + timeInput.value + ' (ウィンドウ ' + windowSelect.value + ' 分)');
+      }
+
+      function getNextOccurrence(timeStr) {
+        // timeStr is "HH:MM"
+        const [hh, mm] = (timeStr || '09:00').split(':').map(Number);
+        const now = new Date();
+        const candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
+        if (candidate.getTime() <= now.getTime()) candidate.setDate(candidate.getDate() + 1);
+        return candidate;
+      }
+
+      function scheduleNextDaily() {
+        if (dailyReminderTimer) { clearTimeout(dailyReminderTimer); dailyReminderTimer = null; }
+        const timeStr = localStorage.getItem('dailyReminderTime') || timeInput.value;
+        const next = getNextOccurrence(timeStr);
+        const delay = next.getTime() - Date.now();
+        dailyReminderTimer = setTimeout(async () => {
+          setStatus('定期チェック時間になりました — 範囲内タスクを通知送信します...');
+            // determine range days (1-7)
+            const days = parseInt(localStorage.getItem('dailyRangeDays') || rangeDaysSelect.value || '1', 10);
+            // start from the scheduled time 'next'
+            await notifyUpcomingTasksRange(next.getTime(), days);
+            // schedule next day
+            dailyReminderTimer = setTimeout(scheduleNextDaily, 24 * 60 * 60 * 1000);
+        }, delay);
+        setStatus('次の定期チェックは ' + next.toString());
+      }
+
+      scheduleBtn.onclick = () => { saveDailySettings(); scheduleNextDaily(); };
+
+      sendRemNowBtn.onclick = async () => { setStatus('手動で期限内タスクをチェック中...'); await sendRemindersNow(); };
+
+      // update range send button text when selection changes
+      rangeDaysSelect.onchange = () => {
+        try { localStorage.setItem('dailyRangeDays', rangeDaysSelect.value); } catch(e){}
+        rangeSendBtn.textContent = '送信';
+      };
+
+      // immediate send for selected range (use today's scheduled time as start)
+      rangeSendBtn.onclick = async () => {
+        const timeStr = localStorage.getItem('dailyReminderTime') || timeInput.value;
+        const [hh, mm] = (timeStr || '09:00').split(':').map(Number);
+        const todayStart = new Date(); todayStart.setHours(hh, mm, 0, 0);
+        const days = parseInt(localStorage.getItem('dailyRangeDays') || rangeDaysSelect.value || '1', 10);
+        await notifyUpcomingTasksRange(todayStart.getTime(), days);
+      };
+
+      // Container for upcoming tasks display
+      const upcomingContainer = document.createElement('div');
+      upcomingContainer.id = 'upcoming-tasks-container';
+      upcomingContainer.style.maxWidth = '640px';
+      upcomingContainer.style.margin = '12px auto';
+      document.body.insertBefore(upcomingContainer, document.querySelector('.container').nextSibling);
+
+      function displayUpcomingTasks(days) {
+        try {
+          const raw = localStorage.getItem('tasks_v1');
+          const allTasks = raw ? JSON.parse(raw) : {};
+          const now = Date.now();
+          const end = now + (days || 7) * 24 * 60 * 60 * 1000;
+          const found = {};
+          Object.keys(allTasks || {}).forEach(dateKey => {
+            (allTasks[dateKey] || []).forEach(t => {
+              const when = new Date(`${dateKey}T${String(t.hour).padStart(2,'0')}:${String(t.minute).padStart(2,'0')}:00`).getTime();
+              if (when >= now && when <= end) {
+                if (!found[dateKey]) found[dateKey] = [];
+                found[dateKey].push(t);
+              }
+            });
+          });
+          // render
+          upcomingContainer.innerHTML = '';
+          const heading = document.createElement('h3'); heading.textContent = `次の ${days} 日以内のタスク一覧`;
+          upcomingContainer.appendChild(heading);
+          const closeBtn = document.createElement('button'); closeBtn.textContent = '閉じる'; closeBtn.onclick = () => { upcomingContainer.innerHTML = ''; };
+          upcomingContainer.appendChild(closeBtn);
+          if (Object.keys(found).length === 0) {
+            const p = document.createElement('p'); p.textContent = '該当するタスクはありません。'; upcomingContainer.appendChild(p); return;
+          }
+          Object.keys(found).sort().forEach(dateKey => {
+            const h2 = document.createElement('h4'); h2.textContent = dateKey; upcomingContainer.appendChild(h2);
+            const ul = document.createElement('ul');
+            found[dateKey].slice().sort((a,b) => (a.hour - b.hour) || (a.minute - b.minute)).forEach(taskObj => {
+              const li = document.createElement('li');
+              li.textContent = `${String(taskObj.hour).padStart(2,'0')}:${String(taskObj.minute).padStart(2,'0')} ${taskObj.text} (重要度:${taskObj.priority}, 難易度:${taskObj.difficulty})`;
+              ul.appendChild(li);
+            });
+            upcomingContainer.appendChild(ul);
+          });
+        } catch (e) { console.error('displayUpcomingTasks error', e); setStatus('期日一覧表示でエラー', true); }
+      }
+      
+      // Send upcoming tasks as push notifications (one notification per task)
+      async function notifyUpcomingTasks(days) {
+        try {
+          const raw = localStorage.getItem('tasks_v1');
+          const allTasks = raw ? JSON.parse(raw) : {};
+          const now = Date.now();
+          const end = now + (days || 7) * 24 * 60 * 60 * 1000;
+          const startDate = new Date(now);
+          const startDateKey = startDate.getFullYear() + '-' + String(startDate.getMonth()+1).padStart(2,'0') + '-' + String(startDate.getDate()).padStart(2,'0');
+          const payloads = [];
+          Object.keys(allTasks || {}).forEach(dateKey => {
+            (allTasks[dateKey] || []).forEach(t => {
+              const when = new Date(`${dateKey}T${String(t.hour).padStart(2,'0')}:${String(t.minute).padStart(2,'0')}:00`).getTime();
+              // include tasks on the start date even if their time has passed
+              if ((dateKey === startDateKey && when <= end) || (when >= now && when <= end)) {
+                payloads.push({ title: '期限が近いタスク', task: Object.assign({}, t, { date: dateKey }), url: `/task1.html?task=${encodeURIComponent(t.id)}` });
+              }
+            });
+          });
+          if (payloads.length === 0) { setStatus('通知対象のタスクはありませんでした。'); return; }
+          setStatus(`期限内 ${payloads.length} 件のタスクを通知送信中...`);
+          const results = await Promise.allSettled(payloads.map(p => fetch(serverBase + '/sendNotification', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(p) })));
+          const fulfilled = results.filter(r => r.status === 'fulfilled').length;
+          const rejected = results.filter(r => r.status === 'rejected').length;
+          setStatus(`通知送信完了: 成功 ${fulfilled} 件, 失敗 ${rejected} 件`);
+        } catch (e) { console.error('notifyUpcomingTasks error', e); setStatus('通知送信でエラー', true); }
+      }
+
+      // notify tasks between a given start timestamp and start + days
+      async function notifyUpcomingTasksRange(startTimestamp, days) {
+        try {
+          const raw = localStorage.getItem('tasks_v1');
+          const allTasks = raw ? JSON.parse(raw) : {};
+          const start = Number(startTimestamp) || Date.now();
+          const end = start + (days || 1) * 24 * 60 * 60 * 1000;
+          const sd = new Date(start);
+          const startDateKey = sd.getFullYear() + '-' + String(sd.getMonth()+1).padStart(2,'0') + '-' + String(sd.getDate()).padStart(2,'0');
+          const payloads = [];
+          Object.keys(allTasks || {}).forEach(dateKey => {
+            (allTasks[dateKey] || []).forEach(t => {
+              const when = new Date(`${dateKey}T${String(t.hour).padStart(2,'0')}:${String(t.minute).padStart(2,'0')}:00`).getTime();
+              // include tasks on the scheduled start date even if their time has already passed
+              if ((dateKey === startDateKey && when <= end) || (when >= start && when <= end)) {
+                payloads.push({ title: '期限が近いタスク', task: Object.assign({}, t, { date: dateKey }), url: `/task1.html?task=${encodeURIComponent(t.id)}` });
+              }
+            });
+          });
+          if (payloads.length === 0) { setStatus('通知対象のタスクはありませんでした。'); return; }
+          setStatus(`範囲内 ${payloads.length} 件のタスクを通知送信中...`);
+          const results = await Promise.allSettled(payloads.map(p => fetch(serverBase + '/sendNotification', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(p) })));
+          const fulfilled = results.filter(r => r.status === 'fulfilled').length;
+          const rejected = results.filter(r => r.status === 'rejected').length;
+          setStatus(`通知送信完了: 成功 ${fulfilled} 件, 失敗 ${rejected} 件`);
+        } catch (e) { console.error('notifyUpcomingTasksRange error', e); setStatus('通知送信でエラー', true); }
+      }
+
+      // Function that checks tasks and sends notifications for those whose deadline is within selected window (minutes)
+      async function sendRemindersNow() {
+        try {
+          const raw = localStorage.getItem('tasks_v1');
+          const allTasks = raw ? JSON.parse(raw) : tasks;
+          const windowMinutes = parseInt(localStorage.getItem('dailyReminderWindow') || windowSelect.value || '1440', 10);
+          const now = Date.now();
+          let payloads = [];
+          Object.keys(allTasks || {}).forEach(dateKey => {
+            (allTasks[dateKey] || []).forEach(t => {
+              const when = new Date(`${dateKey}T${String(t.hour).padStart(2,'0')}:${String(t.minute).padStart(2,'0')}:00`).getTime();
+              const delta = when - now;
+              if (delta > 0 && delta <= windowMinutes * 60 * 1000) {
+                // Avoid repeated reminders for same window by marking lastRemindedWindow on task
+                t._lastRemindedWindow = t._lastRemindedWindow || {};
+                if (t._lastRemindedWindow[windowMinutes]) return; // already reminded for this window
+                payloads.push({ title: '期限が近いタスクがあります', task: Object.assign({}, t, { date: dateKey }), url: `/task1.html?task=${encodeURIComponent(t.id)}`, meta: { minutesUntil: Math.round(delta / 60000) } });
+                t._lastRemindedWindow[windowMinutes] = Date.now();
+              }
+            });
+          });
+          // persist any _lastRemindedWindow changes
+          try { localStorage.setItem('tasks_v1', JSON.stringify(allTasks)); } catch (e) { console.error('failed to persist lastRemindedWindow', e); }
+          if (payloads.length === 0) { setStatus('期限内のタスクは見つかりませんでした。'); return; }
+          setStatus(`期限内 ${payloads.length} 件のタスクに対して通知を送信中...`);
+          const results = await Promise.allSettled(payloads.map(p => fetch(serverBase + '/sendNotification', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(p) })));
+          const fulfilled = results.filter(r => r.status === 'fulfilled').length;
+          const rejected = results.filter(r => r.status === 'rejected').length;
+          setStatus(`期限チェック送信完了: 成功 ${fulfilled} 件, 失敗 ${rejected} 件`);
+        } catch (e) {
+          console.error(e);
+          setStatus('期限チェック中にエラーが発生しました: ' + (e && e.message ? e.message : e), true);
+        }
+      }
+
+      // On load, if there is a saved schedule, start it
+      if (localStorage.getItem('dailyReminderTime')) {
+        scheduleNextDaily();
+      }
+      // Expose debug hooks so you can call these from the browser console during testing
+      try {
+        window.debug_sendRemindersNow = sendRemindersNow;
+        window.debug_sendAllNow = async () => { await sendAllBtn.onclick(); };
+        // Expose action helpers
+        window.recordTaskAction = recordTaskAction;
+        window.showInPageActionPrompt = showInPageActionPrompt;
+        console.log('[push-debug] debug hooks set: debug_sendRemindersNow(), debug_sendAllNow()');
+      } catch (e) { /* ignore */ }
+
+      // Listen for messages from the Service Worker (used to trigger prompts when notification is clicked)
+      try {
+        if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
+          navigator.serviceWorker.addEventListener('message', function(ev) {
+            try {
+              const d = ev.data || {};
+              if (!d || !d.type) return;
+              if (d.type === 'notificationAction') {
+                // immediate recording requested by SW
+                if (d.taskId && d.action) {
+                  recordTaskAction(d.taskId, d.action);
+                }
+              } else if (d.type === 'notificationOpen') {
+                // show the in-page prompt for the task
+                if (d.taskId) {
+                  // find task and prompt
+                  let found = null;
+                  Object.keys(tasks).forEach(dk => { (tasks[dk] || []).forEach(t => { if (t.id === d.taskId) found = t; }); });
+                  if (found) showInPageActionPrompt(found);
+                }
+              }
+            } catch(e) { console.error('sw message handler error', e); }
+          });
+        }
+      } catch(e) { /* ignore */ }
     })();
+
+      // --- Simple Chat UI ---
+      (function(){
+        const chatWrap = document.createElement('div');
+        chatWrap.style.maxWidth = '640px';
+        chatWrap.style.margin = '12px auto';
+        chatWrap.style.background = '#fff';
+        chatWrap.style.padding = '12px';
+        chatWrap.style.borderRadius = '8px';
+        chatWrap.style.boxShadow = '0 2px 8px #0001';
+
+        const h3 = document.createElement('h3'); h3.textContent = 'チャットボット'; chatWrap.appendChild(h3);
+        const msgList = document.createElement('div'); msgList.id = 'chat-messages'; msgList.style.maxHeight = '240px'; msgList.style.overflow = 'auto'; msgList.style.border = '1px solid #eee'; msgList.style.padding = '8px'; msgList.style.marginBottom = '8px'; chatWrap.appendChild(msgList);
+
+        const inputRow = document.createElement('div'); inputRow.style.display = 'flex'; inputRow.style.gap = '8px';
+        const chatInput = document.createElement('input'); chatInput.type='text'; chatInput.placeholder='チャットメッセージを入力'; chatInput.style.flex='1';
+        const chatSend = document.createElement('button'); chatSend.textContent='送信';
+    const attachSummaryLabel = document.createElement('label'); attachSummaryLabel.style.display='flex'; attachSummaryLabel.style.alignItems='center'; attachSummaryLabel.style.gap='6px';
+    const attachSummaryCheckbox = document.createElement('input'); attachSummaryCheckbox.type='checkbox'; attachSummaryCheckbox.id='chat-attach-summary';
+    attachSummaryLabel.appendChild(attachSummaryCheckbox); attachSummaryLabel.appendChild(document.createTextNode('タスク要約を添付'));
+        inputRow.appendChild(chatInput); inputRow.appendChild(chatSend); chatWrap.appendChild(inputRow);
+    chatWrap.appendChild(attachSummaryLabel);
+
+        document.querySelector('.container').after(chatWrap);
+
+        function appendMessage(sender, text){
+          const el = document.createElement('div');
+          el.style.margin = '6px 0';
+          el.innerHTML = `<strong>${sender}:</strong> ${text}`;
+          msgList.appendChild(el);
+          msgList.scrollTop = msgList.scrollHeight;
+        }
+
+        // load history
+        try {
+          const hist = JSON.parse(localStorage.getItem('chat_history_v1') || '[]');
+          hist.forEach(h => appendMessage(h.sender, h.text));
+        } catch(e){}
+
+        function pushHistory(sender, text){
+          try{
+            const h = JSON.parse(localStorage.getItem('chat_history_v1') || '[]');
+            h.push({ sender, text, t: Date.now() });
+            localStorage.setItem('chat_history_v1', JSON.stringify(h.slice(-200)));
+          }catch(e){}
+        }
+
+        // Chat mode: buttons use canned replies; typed messages are sent to server API
+        let chatMode = 'mixed';
+        const modeToggle = document.createElement('label'); modeToggle.style.marginLeft = '8px'; modeToggle.style.fontSize = '13px';
+        modeToggle.textContent = '動作: ボタンは定型文、テキストはAPIで回答';
+        chatWrap.appendChild(modeToggle);
+
+        // Simple choice tree definition — buttons return canned explanations only
+        const choiceTreeRoot = {
+          id: 'root', text: '何をしますか？', options: [
+            { id: 'enable_push', label: 'スマホへのプッシュ通知の有効化', reply: '「スマホへプッシュを有効化」を押すと、Service Worker を登録し、通知の受信を許可するためのブラウザ権限を求めます。許可するとサーバへ購読が送られ、プッシュ通知が届くようになります。' },
+            { id: 'send_all', label: '今すぐ全通知を飛ばす', reply: '「今すぐ全通知を飛ばす」は現在登録されている全タスクについてプッシュ通知を即時送信します。配信数に注意して実行してください。' },
+            { id: 'save_schedule', label: 'スケジュールを保存', reply: '「スケジュールを保存」を押すと、毎日のチェック時刻と通知範囲設定が保存され、次回以降自動的に定期チェックが行われます。' },
+            { id: 'how_sort', label: 'ソートのやり方', reply: '「表示順」から「時間順」「重要度順」「難易度順」を選び、「並び順」で昇順/降順を切り替えることで表示順を変更できます。' },
+            { id: 'add_task', label: 'タスクの追加', reply: '新しいタスクは上のフォームで「タスク名」「日時」「重要度」「難易度」を指定して「追加」を押すと保存され、期限に合わせて通知がスケジュールされます。' },
+            { id: 'view_task', label: 'タスクの詳細の確認方法', reply: '一覧のタスク名をタップすると詳細（時刻・メモ・重要度・難易度）が展開され、既読や完了状態の切り替えができます。' },
+            { id: 'edit_task', label: 'タスクの編集方法', reply: '各タスクの「編集」を押すと編集フォームが表示され、内容を変更して「保存」を押すとスケジュールが更新されます。' }
+          ]
+        };
+
+        function renderOptionsToChat(options) {
+          const container = document.createElement('div'); container.style.display='flex'; container.style.flexWrap='wrap'; container.style.gap='8px'; container.style.marginTop='6px';
+          options.forEach(opt => {
+            const b = document.createElement('button'); b.textContent = opt.label; b.className='small-btn';
+            b.onclick = async () => {
+              appendMessage('あなた', opt.label); pushHistory('あなた', opt.label);
+              if (opt.reply) { appendMessage('bot', opt.reply); pushHistory('bot', opt.reply); }
+              // handle actions
+              if (opt.confirm) {
+                // show confirm buttons
+                const confYes = document.createElement('button'); confYes.textContent='はい'; confYes.className='small-btn';
+                const confNo = document.createElement('button'); confNo.textContent='いいえ'; confNo.className='small-btn';
+                container.appendChild(confYes); container.appendChild(confNo);
+                confYes.onclick = async () => { appendMessage('bot','送信を実行します...'); pushHistory('bot','送信実行'); await performAction(opt.action); confYes.remove(); confNo.remove(); };
+                confNo.onclick = () => { appendMessage('bot','キャンセルしました'); pushHistory('bot','キャンセル'); confYes.remove(); confNo.remove(); };
+              } else {
+                await performAction(opt.action);
+              }
+            };
+            container.appendChild(b);
+          });
+          appendMessage('bot', '選択肢を表示しました'); // simple note
+          msgList.appendChild(container);
+        }
+
+        async function performAction(actionId) {
+          try {
+            if (!actionId) return;
+            if (actionId === 'sendAllNow') {
+              if (window.debug_sendAllNow) { await window.debug_sendAllNow(); appendMessage('bot','送信リクエストを発行しました'); pushHistory('bot','送信リクエスト'); }
+              else appendMessage('bot','送信機能が見つかりません');
+            } else if (actionId === 'sendRemindersNow' || actionId === 'remind_now') {
+              if (window.debug_sendRemindersNow) { await window.debug_sendRemindersNow(); appendMessage('bot','期限チェックを実行しました'); pushHistory('bot','期限チェック'); }
+              else appendMessage('bot','期限チェック機能が見つかりません');
+            } else if (actionId === 'showToday' || actionId === 'today_tasks') {
+              if (window.debug_showToday) { await window.debug_showToday(); appendMessage('bot','今日のタスクを表示します'); pushHistory('bot','今日のタスク表示'); }
+              else appendMessage('bot','今日のタスクを表示する機能はクライアント側で実装されています。画面下の「期限一覧」をご確認ください。');
+            } else if (actionId === 'help') {
+              appendMessage('bot','使い方: ボタンを押すとその操作を実行します。'); pushHistory('bot','使い方案内');
+            }
+          } catch (e) { appendMessage('bot','操作中にエラーが発生しました: ' + (e && e.message ? e.message : e)); pushHistory('bot','操作エラー'); }
+        }
+
+        // When a user sends a text message, forward to server /chat for an API response
+        async function sendChat(msg){
+          appendMessage('あなた', msg);
+          pushHistory('あなた', msg);
+          try {
+            // build context: optional task summary attachment
+            let context = {};
+            if (document.getElementById('chat-attach-summary') && document.getElementById('chat-attach-summary').checked) {
+              try {
+                const raw = localStorage.getItem('tasks_v1') || '{}'; const all = JSON.parse(raw);
+                const upcomingSample = [];
+                let upcomingCount = 0;
+                Object.keys(all || {}).forEach(dateKey => {
+                  (all[dateKey] || []).forEach(t => {
+                    const when = new Date(`${dateKey}T${String(t.hour).padStart(2,'0')}:${String(t.minute).padStart(2,'0')}:00`).getTime();
+                    if (when >= Date.now() && upcomingSample.length < 3) upcomingSample.push(Object.assign({}, t, { date: dateKey }));
+                    if (when >= Date.now()) upcomingCount++;
+                  });
+                });
+                context.upcomingCount = upcomingCount;
+                context.upcomingSample = upcomingSample;
+              } catch(e) { console.error('build chat context error', e); }
+            }
+            const resp = await fetch(serverBase + '/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message: msg, context }) });
+            if (!resp.ok) {
+              let detail = '';
+              try { detail = await resp.text(); } catch(e) { detail = String(e); }
+              const short = `サーバー応答でエラーが発生しました (${resp.status})`;
+              appendMessage('bot', short + (detail ? ` — ${detail}` : ''));
+              pushHistory('bot', 'サーバーエラー: ' + (detail || resp.status));
+              setStatus && setStatus('チャット送信でサーバーエラー: ' + resp.status, true);
+              return;
+            }
+            let j = null;
+            try { j = await resp.json(); } catch(e) { const txt = await resp.text().catch(()=>'(no body)'); appendMessage('bot','サーバー応答の解析に失敗しました: ' + txt); pushHistory('bot','応答解析エラー'); return; }
+            const reply = j && j.reply ? j.reply : '(応答なし)';
+            appendMessage('bot', reply); pushHistory('bot', reply);
+          } catch (e) {
+            console.error('chat send error', e);
+            appendMessage('bot', 'チャット送信中にエラーが発生しました: ' + (e && e.message ? e.message : String(e)));
+            pushHistory('bot','送信エラー: ' + (e && e.message ? e.message : String(e)));
+            setStatus && setStatus('チャット送信でエラー: ' + (e && e.message ? e.message : String(e)), true);
+          }
+        }
+
+        chatSend.onclick = async () => { const v = chatInput.value.trim(); if(!v) return; chatInput.value=''; await sendChat(v); };
+        chatInput.addEventListener('keypress', (e)=>{ if(e.key === 'Enter'){ chatSend.click(); } });
+      })();
 
     // --- DOM references and state (were accidentally removed) ---
     const form = document.getElementById('task-form');
@@ -147,7 +906,52 @@
         new Notification('タスク通知', {
           body: `${timeStr} ${task.text} (重要度:${task.priority}, 難易度:${task.difficulty})`,
         });
+        // If the page is visible, also show an in-page action prompt so user can mark done/failed
+        try { if (document.visibilityState === 'visible') { try { showInPageActionPrompt(task); } catch(e){} } } catch(e){}
       }
+    }
+
+    // Record a task action (done/failed) and persist history; reusable from URL handler and in-page prompt
+    function recordTaskAction(taskId, action) {
+      try {
+        let found = null; let foundDate = null;
+        Object.keys(tasks).forEach(dk => { (tasks[dk] || []).forEach(t => { if (t.id === taskId) { found = t; foundDate = dk; } }); });
+        if (!found) return false;
+        const histKey = 'task_status_history_v1';
+        const now = new Date();
+        const entry = { taskId, date: now.toISOString(), action: action === 'mark_done' ? 'done' : (action === 'mark_failed' ? 'failed' : action), taskText: found.text };
+        try { const raw = localStorage.getItem(histKey) || '[]'; const arr = JSON.parse(raw); arr.push(entry); localStorage.setItem(histKey, JSON.stringify(arr)); } catch(e) { console.error('failed to persist task history', e); }
+        if (action === 'mark_done') {
+          found.completed = true;
+          try { stopFailureReminders(taskId); const raw = localStorage.getItem('failureSchedules_v1') || '{}'; const obj = JSON.parse(raw); if (obj[taskId]) { delete obj[taskId]; localStorage.setItem('failureSchedules_v1', JSON.stringify(obj)); } } catch(e){}
+        }
+        if (action === 'mark_failed') {
+          scheduleFailureSequence(taskId);
+        }
+        saveTasksToStorage(); renderTasks();
+        try { appendMessage && appendMessage('bot', `タスク「${found.text}」を「${entry.action}」として記録しました (${now.toLocaleString()})`); pushHistory && pushHistory('bot', `記録: ${entry.action}`); } catch(e){}
+        return true;
+      } catch(e) { console.error('recordTaskAction error', e); return false; }
+    }
+
+    // Show an in-page prompt with action buttons when Notification actions aren't available
+    function showInPageActionPrompt(task) {
+      try {
+        const existing = document.getElementById('inpage-action-prompt');
+        if (existing) existing.remove();
+        const wrap = document.createElement('div'); wrap.id = 'inpage-action-prompt';
+        wrap.style.position = 'fixed'; wrap.style.right = '12px'; wrap.style.bottom = '12px'; wrap.style.background = '#fff'; wrap.style.border = '1px solid #ccc'; wrap.style.padding = '12px'; wrap.style.borderRadius = '8px'; wrap.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)'; wrap.style.zIndex = 9999; wrap.style.maxWidth = '320px';
+        const p = document.createElement('div'); p.style.marginBottom = '8px'; p.textContent = `期限到来: ${task.text}`; wrap.appendChild(p);
+        const btnDone = document.createElement('button'); btnDone.textContent = '達成'; btnDone.className='small-btn'; btnDone.style.marginRight='8px';
+        const btnFail = document.createElement('button'); btnFail.textContent = '未達成'; btnFail.className='small-btn';
+        const btnClose = document.createElement('button'); btnClose.textContent = '閉じる'; btnClose.className='small-btn'; btnClose.style.marginLeft='8px';
+        btnDone.onclick = () => { recordTaskAction(task.id, 'mark_done'); wrap.remove(); };
+        btnFail.onclick = () => { recordTaskAction(task.id, 'mark_failed'); wrap.remove(); };
+        btnClose.onclick = () => { wrap.remove(); };
+        const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='flex-end'; row.appendChild(btnDone); row.appendChild(btnFail); row.appendChild(btnClose);
+        wrap.appendChild(row);
+        document.body.appendChild(wrap);
+      } catch(e) { console.error('showInPageActionPrompt error', e); }
     }
 
     function saveTasksToStorage() {
@@ -181,16 +985,21 @@
           sendTaskNotification(task);
           
           // サーバーへプッシュ通知リクエストを送信
-          fetch('/sendNotification', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              title: 'タスクの時間です',
-              body: task.text,
-            }),
-          }).catch(err => console.error('Push notification send failed:', err));
+          // Send actionable notification so user can mark done/failed
+          try {
+            const payload = {
+              title: '期限到来: タスクの確認',
+              body: `期限になりました: ${task.text}。達成できましたか？`,
+              task: Object.assign({}, task, { date }),
+              url: `/task1.html`,
+              actions: [
+                { action: 'mark_done', title: '達成' },
+                { action: 'mark_failed', title: '未達成' }
+              ],
+              type: 'deadline_check'
+            };
+            fetch('/sendNotification', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }).catch(()=>{});
+          } catch(e){ console.error('failed to send push payload', e); }
 
           // mark notified to avoid duplicate immediate-notify on reload
           task.notified = true;
@@ -210,6 +1019,7 @@
       e.preventDefault();
       const text = input.value.trim();
       const datetime = datetimeInput.value;
+      const memo = (document.getElementById('memo-input') || {value:''}).value.trim();
       const priority = parseInt(priorityInput.value, 10);
       const difficulty = parseInt(difficultyInput.value, 10);
       if (text && datetime && priority && difficulty) {
@@ -218,7 +1028,7 @@
         const [hour, minute] = time.split(':').map(Number);
         if (!tasks[date]) tasks[date] = [];
         const id = Date.now().toString(36) + Math.random().toString(36).slice(2,8);
-        const taskObj = { id, text, priority, difficulty, hour, minute, completed: false };
+        const taskObj = { id, text, memo, priority, difficulty, hour, minute, completed: false };
         tasks[date].push(taskObj);
         // スケジュール
         scheduleTaskNotification(date, taskObj);
@@ -226,6 +1036,7 @@
         sendTaskNotification(taskObj);
         saveTasksToStorage();
         input.value = '';
+        try { document.getElementById('memo-input').value = ''; } catch(e){}
         datetimeInput.value = '';
         priorityInput.value = '5';
         difficultyInput.value = '5';
@@ -238,36 +1049,93 @@
       tasksByDateDiv.innerHTML = '';
       Object.keys(scheduledTimers).forEach(k => cancelScheduledNotification(k));
       const mode = parseInt((document.getElementById('sort-select') || {value:0}).value, 10);
+      const sortOrder = (document.getElementById('sort-order') || {value:'desc'}).value;
+
+      // If there are no tasks, show a helpful placeholder instead of blank
+      try {
+        if (!tasks || Object.keys(tasks).length === 0) {
+          const wrap = document.createElement('div'); wrap.style.textAlign = 'center'; wrap.style.padding = '24px';
+          const msg = document.createElement('p'); msg.textContent = '登録されたタスクはありません。新しいタスクを追加してください。'; msg.style.color = '#666';
+          const addBtn = document.createElement('button'); addBtn.textContent = '新規追加'; addBtn.className = 'main-btn'; addBtn.style.marginTop = '12px';
+          addBtn.onclick = () => { try { document.getElementById('task-input').focus(); } catch(e){} };
+          wrap.appendChild(msg); wrap.appendChild(addBtn);
+          tasksByDateDiv.appendChild(wrap);
+          return;
+        }
+      } catch(e) { console.error('renderTasks placeholder error', e); }
 
       // helper to build a list item for a task
+      // helper: escape HTML for safe insertion
+      function escapeHtml(str) {
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+
+      // chunk text every n chars and return HTML with <br>
+      function chunkTextHtml(str, n) {
+        if (!str) return '';
+        const out = [];
+        for (let i = 0; i < str.length; i += n) {
+          out.push(escapeHtml(str.slice(i, i + n)));
+        }
+        return out.join('<br>');
+      }
+
       function buildListItem(taskObj, dateKey) {
         const li = document.createElement('li');
-        const span = document.createElement('span');
+        const card = document.createElement('div'); card.className = 'task-vertical';
         const timeStr = `${String(taskObj.hour).padStart(2, '0')}:${String(taskObj.minute).padStart(2, '0')}`;
-        span.textContent = `${timeStr} ${taskObj.text} [重要度:${taskObj.priority}, 難易度:${taskObj.difficulty}]`;
-        if (taskObj.completed) span.classList.add('completed');
-        span.addEventListener('click', () => {
+
+        const rowTime = document.createElement('div'); rowTime.className = 'tv-row';
+        const lblTime = document.createElement('div'); lblTime.className = 'tv-label'; lblTime.textContent = '時刻';
+        const valTime = document.createElement('div'); valTime.className = 'tv-value'; valTime.textContent = timeStr;
+        rowTime.appendChild(lblTime); rowTime.appendChild(valTime);
+
+        const rowText = document.createElement('div'); rowText.className = 'tv-row';
+        const lblText = document.createElement('div'); lblText.className = 'tv-label'; lblText.textContent = 'タスク名';
+        const valText = document.createElement('div'); valText.className = 'tv-value'; valText.innerHTML = chunkTextHtml(taskObj.text, 15);
+        if (taskObj.completed) valText.classList.add('completed');
+        valText.title = taskObj.text;
+        valText.addEventListener('click', () => {
           taskObj.completed = !taskObj.completed;
+          // stop failure reminders if task is now completed
+          if (taskObj.completed) {
+            try { stopFailureReminders(taskObj.id); } catch(e){}
+          }
           saveTasksToStorage();
           renderTasks();
         });
+        rowText.appendChild(lblText); rowText.appendChild(valText);
 
-        const editBtn = document.createElement('button'); editBtn.textContent='編集'; editBtn.className='edit-btn';
+        const rowMeta = document.createElement('div'); rowMeta.className = 'tv-row';
+        const lblPr = document.createElement('div'); lblPr.className = 'tv-label'; lblPr.textContent = '重要度';
+        const valPr = document.createElement('div'); valPr.className = 'tv-value'; valPr.textContent = taskObj.priority;
+        const lblDiff = document.createElement('div'); lblDiff.className = 'tv-label'; lblDiff.textContent = '難易度'; lblDiff.style.minWidth = '70px';
+        const valDiff = document.createElement('div'); valDiff.className = 'tv-value'; valDiff.textContent = taskObj.difficulty;
+        rowMeta.appendChild(lblPr); rowMeta.appendChild(valPr); rowMeta.appendChild(lblDiff); rowMeta.appendChild(valDiff);
+
+        // memo will be appended after meta so it appears between meta and actions
+
+        const actionRow = document.createElement('div'); actionRow.className = 'tv-row';
+        const actions = document.createElement('div'); actions.className = 'tv-actions';
+        const editBtn = document.createElement('button'); editBtn.textContent = '編集'; editBtn.className = 'small-btn';
         editBtn.onclick = () => {
-          const editForm = document.createElement('form');
-          editForm.style.display = 'flex'; editForm.style.gap = '4px';
+          const editForm = document.createElement('form'); editForm.style.display = 'flex'; editForm.style.flexDirection = 'column'; editForm.style.gap = '6px';
           const textInput = document.createElement('input'); textInput.type='text'; textInput.value = taskObj.text; textInput.required=true;
-          const hourInput = document.createElement('input'); hourInput.type='number'; hourInput.min=0; hourInput.max=23; hourInput.value=taskObj.hour; hourInput.required=true; hourInput.style.width='60px';
-          const minuteInput = document.createElement('input'); minuteInput.type='number'; minuteInput.min=0; minuteInput.max=59; minuteInput.value=taskObj.minute; minuteInput.required=true; minuteInput.style.width='60px';
-          const priorityInputEl = document.createElement('input'); priorityInputEl.type='number'; priorityInputEl.min=1; priorityInputEl.max=10; priorityInputEl.value=taskObj.priority; priorityInputEl.required=true; priorityInputEl.style.width='60px';
-          const difficultyInputEl = document.createElement('input'); difficultyInputEl.type='number'; difficultyInputEl.min=1; difficultyInputEl.max=10; difficultyInputEl.value=taskObj.difficulty; difficultyInputEl.required=true; difficultyInputEl.style.width='60px';
+          const hourInput = document.createElement('input'); hourInput.type='number'; hourInput.min=0; hourInput.max=23; hourInput.value=taskObj.hour; hourInput.required=true; hourInput.style.width='120px';
+          const minuteInput = document.createElement('input'); minuteInput.type='number'; minuteInput.min=0; minuteInput.max=59; minuteInput.value=taskObj.minute; minuteInput.required=true; minuteInput.style.width='120px';
+          const priorityInputEl = document.createElement('select'); priorityInputEl.style.width='120px'; priorityInputEl.required = true;
+          for (let i = 1; i <= 10; i++) { const o = document.createElement('option'); o.value = String(i); o.text = String(i); if (String(i) === String(taskObj.priority)) o.selected = true; priorityInputEl.appendChild(o); }
+          const difficultyInputEl = document.createElement('select'); difficultyInputEl.style.width='120px'; difficultyInputEl.required = true;
+          for (let i = 1; i <= 10; i++) { const o = document.createElement('option'); o.value = String(i); o.text = String(i); if (String(i) === String(taskObj.difficulty)) o.selected = true; difficultyInputEl.appendChild(o); }
+          const memoInputEl = document.createElement('textarea'); memoInputEl.rows = 3; memoInputEl.style.width = '100%'; memoInputEl.style.boxSizing = 'border-box'; memoInputEl.value = taskObj.memo || ''; memoInputEl.placeholder = 'メモ（任意）';
           const saveBtn = document.createElement('button'); saveBtn.type='submit'; saveBtn.textContent='保存';
           const cancelBtn = document.createElement('button'); cancelBtn.type='button'; cancelBtn.textContent='キャンセル'; cancelBtn.onclick = () => renderTasks();
-          editForm.appendChild(textInput); editForm.appendChild(hourInput); editForm.appendChild(minuteInput); editForm.appendChild(priorityInputEl); editForm.appendChild(difficultyInputEl); editForm.appendChild(saveBtn); editForm.appendChild(cancelBtn);
+          editForm.appendChild(textInput); editForm.appendChild(hourInput); editForm.appendChild(minuteInput); editForm.appendChild(priorityInputEl); editForm.appendChild(difficultyInputEl); editForm.appendChild(memoInputEl); editForm.appendChild(saveBtn); editForm.appendChild(cancelBtn);
           li.innerHTML = ''; li.appendChild(editForm);
           editForm.onsubmit = (e) => {
             e.preventDefault();
             taskObj.text = textInput.value;
+            taskObj.memo = memoInputEl.value;
             taskObj.hour = parseInt(hourInput.value, 10);
             taskObj.minute = parseInt(minuteInput.value, 10);
             taskObj.priority = parseInt(priorityInputEl.value, 10);
@@ -277,8 +1145,7 @@
             renderTasks();
           };
         };
-
-        const delBtn = document.createElement('button'); delBtn.textContent='削除'; delBtn.className='delete-btn';
+        const delBtn = document.createElement('button'); delBtn.textContent='削除'; delBtn.className='small-btn delete-btn';
         delBtn.onclick = () => {
           const realIdx = tasks[dateKey].findIndex(t => t.id === taskObj.id);
           if (realIdx !== -1) tasks[dateKey].splice(realIdx, 1);
@@ -287,39 +1154,154 @@
           saveTasksToStorage();
           renderTasks();
         };
+        actions.appendChild(editBtn); actions.appendChild(delBtn);
+        actionRow.appendChild(actions);
 
-        li.appendChild(span); li.appendChild(editBtn); li.appendChild(delBtn);
+        card.appendChild(rowTime); card.appendChild(rowText); card.appendChild(rowMeta);
+        // memo row (show if exists) - placed between meta and actions
+        if (taskObj.memo) {
+          const rowMemo = document.createElement('div'); rowMemo.className = 'tv-row';
+          const lblMemo = document.createElement('div'); lblMemo.className = 'tv-label'; lblMemo.textContent = 'メモ';
+          const valMemo = document.createElement('div'); valMemo.className = 'tv-value'; valMemo.innerHTML = chunkTextHtml(taskObj.memo, 30);
+          rowMemo.appendChild(lblMemo); rowMemo.appendChild(valMemo);
+          card.appendChild(rowMemo);
+        }
+        card.appendChild(actionRow);
+        li.appendChild(card);
         return li;
       }
 
+        // create a header row for the grid (used per-date and for flattened views)
+        function createGridHeader() {
+          const hdr = document.createElement('div'); hdr.className = 'task-grid header';
+          const d1 = document.createElement('div'); d1.textContent = '時刻';
+          const d2 = document.createElement('div'); d2.textContent = 'タスク名';
+          const d3 = document.createElement('div'); d3.textContent = '重要度'; d3.style.textAlign = 'center';
+          const d4 = document.createElement('div'); d4.textContent = '難易度'; d4.style.textAlign = 'center';
+          const d5 = document.createElement('div'); d5.textContent = '編集'; d5.style.textAlign = 'center';
+          const d6 = document.createElement('div'); d6.textContent = '削除'; d6.style.textAlign = 'center';
+          hdr.appendChild(d1); hdr.appendChild(d2); hdr.appendChild(d3); hdr.appendChild(d4); hdr.appendChild(d5); hdr.appendChild(d6);
+          return hdr;
+        }
+
       if (mode === 0) {
-        // 時間順: grouped by date
-        const dates = Object.keys(tasks).sort();
+        // 時間順: grouped by date (compact: show date + button, tasks collapsed by default)
+        let dates = Object.keys(tasks).sort();
+        if (sortOrder === 'desc') dates = dates.reverse();
         dates.forEach(dateKey => {
           const section = document.createElement('section');
-          const h2 = document.createElement('h2'); h2.textContent = dateKey; section.appendChild(h2);
+          // compact header row
+          const headerRow = document.createElement('div'); headerRow.className = 'date-row';
+          const h2 = document.createElement('h2'); h2.textContent = dateKey; headerRow.appendChild(h2);
+          // show days left
+          try {
+            const daysLeft = Math.ceil((new Date(dateKey).getTime() - Date.now()) / (24*60*60*1000));
+            const span = document.createElement('span'); span.style.fontSize = '13px'; span.style.color = '#666'; span.style.marginLeft='8px';
+            span.textContent = `（あと${Math.max(0, daysLeft)}日）`;
+            headerRow.appendChild(span);
+          } catch(e) {}
+          // importance counts summary (e.g. 重要度5×1 4×2)
+          try {
+            const counts = {};
+            (tasks[dateKey] || []).forEach(t => { counts[String(t.priority)] = (counts[String(t.priority)] || 0) + 1; });
+            const keys = Object.keys(counts).map(Number).sort((a,b)=>b-a);
+            if (keys.length > 0) {
+              const imp = document.createElement('span'); imp.style.fontSize='13px'; imp.style.color='#444'; imp.style.marginLeft='10px';
+              imp.textContent = '重要度 ' + keys.map(k => `${k}×${counts[k]}`).join(' ');
+              headerRow.appendChild(imp);
+            }
+          } catch(e) {}
+          const btn = document.createElement('button'); btn.className = 'check-btn';
+          const collapsedFlag = localStorage.getItem('collapsed:' + dateKey);
+          const collapsed = collapsedFlag === '0' ? false : true; // default collapsed
+          btn.textContent = collapsed ? '詳細' : '閉じる';
+          headerRow.appendChild(btn);
+          section.appendChild(headerRow);
+
           const ul = document.createElement('ul');
-          tasks[dateKey].slice().sort((a,b) => (a.hour - b.hour) || (a.minute - b.minute)).forEach(taskObj => {
+          ul.style.display = collapsed ? 'none' : 'block';
+          tasks[dateKey].slice().sort((a,b) => {
+            const cmp = (a.hour - b.hour) || (a.minute - b.minute);
+            return sortOrder === 'asc' ? cmp : -cmp;
+          }).forEach(taskObj => {
             ul.appendChild(buildListItem(taskObj, dateKey));
             scheduleTaskNotification(dateKey, taskObj);
           });
-          section.appendChild(ul); tasksByDateDiv.appendChild(section);
+          section.appendChild(ul);
+          btn.onclick = () => {
+            const isHidden = ul.style.display === 'none';
+            ul.style.display = isHidden ? 'block' : 'none';
+            btn.textContent = isHidden ? '閉じる' : '詳細';
+            localStorage.setItem('collapsed:' + dateKey, isHidden ? '0' : '1');
+          };
+          tasksByDateDiv.appendChild(section);
         });
+        // update test select with current tasks
+        try { populateFailureTestSelect(); } catch(e){}
       } else {
-        // priority or importance: flatten and sort
-        const all = [];
-        Object.keys(tasks).forEach(dateKey => tasks[dateKey].forEach(t => all.push(Object.assign({date: dateKey}, t))));
-        if (mode === 1) {
-          all.sort((a,b) => (b.priority - a.priority) || (a.hour - b.hour) || (a.minute - b.minute));
-        } else {
-          all.sort((a,b) => (b.difficulty - a.difficulty) || (a.hour - b.hour) || (a.minute - b.minute));
-        }
-        const section = document.createElement('section'); const h2 = document.createElement('h2'); h2.textContent = '全タスク'; section.appendChild(h2);
-        const ul = document.createElement('ul');
-        all.forEach(taskObj => {
-          ul.appendChild(buildListItem(taskObj, taskObj.date));
+        // priority or importance: group by date, sort within each date (do not mix tasks across dates)
+        let dates = Object.keys(tasks).sort();
+        if (sortOrder === 'desc') dates = dates.reverse();
+        dates.forEach(dateKey => {
+          const section = document.createElement('section');
+          // compact header with toggle button
+          const headerRow = document.createElement('div'); headerRow.className = 'date-row';
+          const h2 = document.createElement('h2'); h2.textContent = dateKey; headerRow.appendChild(h2);
+          // show days left
+          try {
+            const daysLeft = Math.ceil((new Date(dateKey).getTime() - Date.now()) / (24*60*60*1000));
+            const span = document.createElement('span'); span.style.fontSize = '13px'; span.style.color = '#666'; span.style.marginLeft='8px';
+            span.textContent = `（あと${Math.max(0, daysLeft)}日）`;
+            headerRow.appendChild(span);
+          } catch(e) {}
+          // importance counts summary (e.g. 重要度5×1 4×2)
+          try {
+            const counts = {};
+            (tasks[dateKey] || []).forEach(t => { counts[String(t.priority)] = (counts[String(t.priority)] || 0) + 1; });
+            const keys = Object.keys(counts).map(Number).sort((a,b)=>b-a);
+            if (keys.length > 0) {
+              const imp = document.createElement('span'); imp.style.fontSize='13px'; imp.style.color='#444'; imp.style.marginLeft='10px';
+              imp.textContent = '重要度 ' + keys.map(k => `${k}×${counts[k]}`).join(' ');
+              headerRow.appendChild(imp);
+            }
+          } catch(e) {}
+          const btn = document.createElement('button'); btn.className = 'check-btn small';
+          const collapsedFlag = localStorage.getItem('collapsed:' + dateKey);
+          const collapsed = collapsedFlag === '0' ? false : true; // default collapsed
+          btn.textContent = collapsed ? '詳細' : '閉じる';
+          headerRow.appendChild(btn);
+          section.appendChild(headerRow);
+          const ul = document.createElement('ul');
+          ul.style.display = collapsed ? 'none' : 'block';
+          // clone list to avoid mutating original
+          const list = (tasks[dateKey] || []).slice();
+          if (mode === 1) {
+            // sort by priority within the same date
+            list.sort((a,b) => {
+              const cmp = (b.priority - a.priority) || (a.hour - b.hour) || (a.minute - b.minute);
+              return sortOrder === 'asc' ? -cmp : cmp;
+            });
+          } else {
+            // sort by difficulty within the same date
+            list.sort((a,b) => {
+              const cmp = (b.difficulty - a.difficulty) || (a.hour - b.hour) || (a.minute - b.minute);
+              return sortOrder === 'asc' ? -cmp : cmp;
+            });
+          }
+          list.forEach(taskObj => {
+            ul.appendChild(buildListItem(taskObj, dateKey));
+            scheduleTaskNotification(dateKey, taskObj);
+          });
+          btn.onclick = () => {
+            const isHidden = ul.style.display === 'none';
+            ul.style.display = isHidden ? 'block' : 'none';
+            btn.textContent = isHidden ? '閉じる' : '詳細';
+            localStorage.setItem('collapsed:' + dateKey, isHidden ? '0' : '1');
+          };
+          section.appendChild(ul);
+          tasksByDateDiv.appendChild(section);
         });
-        section.appendChild(ul); tasksByDateDiv.appendChild(section);
+        try { populateFailureTestSelect(); } catch(e){}
       }
     }
 
@@ -331,7 +1313,19 @@
           const when = new Date(`${date}T${String(task.hour).padStart(2,'0')}:${String(task.minute).padStart(2,'0')}:00`).getTime();
           if (!task.notified && when <= now) {
             // 過去または現在の時刻でまだ通知されていない -> 直ちに通知
+            // show local notification and send actionable push so user can mark result
             sendTaskNotification(task);
+            try {
+              const payload = {
+                title: '期限到来: タスクの確認',
+                body: `期限を過ぎました: ${task.text}。達成できましたか？`,
+                task: Object.assign({}, task, { date }),
+                url: `/task1.html`,
+                actions: [ { action: 'mark_done', title: '達成' }, { action: 'mark_failed', title: '未達成' } ],
+                type: 'deadline_check'
+              };
+              fetch('/sendNotification', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }).catch(()=>{});
+            } catch(e) { console.error('failed to send immediate push', e); }
             task.notified = true;
           } else if (when > now) {
             // 未来のタスクはスケジュール
@@ -345,7 +1339,134 @@
     // 初期化
     loadTasksFromStorage();
     checkOnLoadAndSchedule();
-    renderTasks();
+    // Load any persisted failure schedules and recreate timers
+    try { loadFailureSchedules(); } catch(e) { console.error('loadFailureSchedules init error', e); }
+    // populate test select immediately so user can pick a task
+    try { populateFailureTestSelect(); } catch(e) { /* ignore */ }
+    // Check recent notifications (fallback for platforms that don't pass click params)
+    try { checkRecentNotificationsOnOpen(); } catch(e) { /* ignore */ }
+    // Check URL params to handle notification action clicks from service-worker
+    (function handleNotificationActionParams(){
+      try {
+        const params = new URLSearchParams(location.search);
+        // If a direct action param is present (from notification action buttons), record it
+        if (params.has('taskAction')) {
+          const action = params.get('taskAction');
+          const taskId = params.get('taskId');
+          if (taskId) {
+            const ok = recordTaskAction(taskId, action);
+            if (!ok) appendMessage && appendMessage('bot', '該当タスクが見つかりませんでした。');
+          }
+          history.replaceState(null, '', location.pathname);
+          return;
+        }
+        // Fallback: if opened via notification tap on platforms without action buttons,
+        // show the in-page prompt to let the user choose.
+        if (params.get('openAction') === 'prompt' && params.has('taskId')) {
+          const taskId = params.get('taskId');
+          let found = null;
+          Object.keys(tasks).forEach(dk => { (tasks[dk] || []).forEach(t => { if (t.id === taskId) found = t; }); });
+          if (found) {
+            try { showInPageActionPrompt(found); } catch(e) { console.error('failed to show in-page prompt', e); }
+          } else {
+            appendMessage && appendMessage('bot', '該当タスクが見つかりませんでした。');
+          }
+          history.replaceState(null, '', location.pathname);
+        }
+      } catch(e) { console.error('handleNotificationActionParams error', e); }
+    })();
+    // Render tasks only when requested via #showTasks (keeps main app open state empty)
+    function ensureRenderByHash() {
+      // If user explicitly requested showTasks, render.
+      // Additionally, if there are saved tasks in localStorage, render them automatically
+      // so users don't need to add a task to see existing data.
+      if (location.hash === '#showTasks' || (tasks && Object.keys(tasks).length > 0)) {
+        renderTasks();
+      } else {
+        // clear the view when not showing and no tasks exist
+        tasksByDateDiv.innerHTML = '';
+      }
+    }
+    ensureRenderByHash();
+    window.addEventListener('hashchange', ensureRenderByHash);
+
+    // If the app was opened without params but a recent notification exists, show prompt
+    async function checkRecentNotificationsOnOpen() {
+      try {
+        const resp = await fetch('/recentNotifications');
+        if (!resp.ok) return;
+        const j = await resp.json();
+        const arr = j && j.recent ? j.recent : [];
+        if (!arr || arr.length === 0) return;
+        // Find the most recent notification with a task id
+        const recentWithTask = arr.slice().reverse().find(x => x.task && x.task.id);
+        if (!recentWithTask) return;
+        const taskId = recentWithTask.task.id;
+        // avoid showing repeatedly by tracking lastShown timestamp per task
+        const seenKey = `seenRecentNotif_${taskId}`;
+        if (localStorage.getItem(seenKey)) return;
+        // find task locally
+        let found = null;
+        Object.keys(tasks).forEach(dk => { (tasks[dk] || []).forEach(t => { if (t.id === taskId) found = t; }); });
+        if (found) {
+          showInPageActionPrompt(found);
+          localStorage.setItem(seenKey, String(Date.now()));
+        }
+      } catch(e) { console.error('checkRecentNotificationsOnOpen error', e); }
+    }
+
+    // Manual UI: fetch recent notifications and show a modal so user can trigger prompts
+    async function fetchRecentNotifications() {
+      try {
+        const resp = await fetch('/recentNotifications');
+        if (!resp.ok) { setStatus && setStatus('recentNotifications の取得に失敗'); return; }
+        const j = await resp.json();
+        const arr = j && j.recent ? j.recent : [];
+        showRecentNotificationsModal(arr);
+      } catch(e) { console.error('fetchRecentNotifications error', e); setStatus && setStatus('recentNotifications の取得でエラー'); }
+    }
+
+    function showRecentNotificationsModal(arr) {
+      try {
+        const existing = document.getElementById('recent-notif-modal'); if (existing) existing.remove();
+        const wrap = document.createElement('div'); wrap.id='recent-notif-modal';
+        wrap.style.position='fixed'; wrap.style.left='8px'; wrap.style.right='8px'; wrap.style.top='80px'; wrap.style.maxHeight='60%'; wrap.style.overflow='auto'; wrap.style.background='#fff'; wrap.style.border='1px solid #ccc'; wrap.style.padding='12px'; wrap.style.zIndex=10000; wrap.style.borderRadius='8px';
+        const h = document.createElement('div'); h.textContent='最近の通知'; h.style.fontWeight='600'; h.style.marginBottom='8px'; wrap.appendChild(h);
+        if (!arr || arr.length === 0) {
+          const p = document.createElement('div'); p.textContent='最近の通知はありません'; wrap.appendChild(p);
+        } else {
+          arr.forEach(item => {
+            const row = document.createElement('div'); row.style.borderBottom='1px solid #eee'; row.style.padding='8px 0';
+            const t = document.createElement('div'); t.textContent = (item.title || '') + (item.task && item.task.text ? (' — ' + item.task.text) : ''); row.appendChild(t);
+            const btn = document.createElement('button'); btn.textContent='プロンプト表示'; btn.className='small-btn'; btn.style.marginTop='6px';
+            btn.onclick = () => {
+              try {
+                if (item.task && item.task.id) {
+                  let found = null;
+                  Object.keys(tasks).forEach(dk => { (tasks[dk] || []).forEach(tt => { if (tt.id === item.task.id) found = tt; }); });
+                  if (found) { showInPageActionPrompt(found); } else { alert('該当タスクが見つかりません。'); }
+                }
+              } catch(e) { console.error(e); }
+            };
+            row.appendChild(btn);
+            wrap.appendChild(row);
+          });
+        }
+        const close = document.createElement('button'); close.textContent='閉じる'; close.className='small-btn'; close.style.marginTop='8px'; close.onclick = () => { wrap.remove(); };
+        wrap.appendChild(close);
+        document.body.appendChild(wrap);
+      } catch(e) { console.error('showRecentNotificationsModal error', e); }
+    }
+
+    // Add floating button to open recent notifications
+    try {
+      const recentBtn = document.createElement('button');
+      recentBtn.id='recent-notif-btn';
+      recentBtn.textContent='最近の通知';
+      recentBtn.style.position='fixed'; recentBtn.style.right='12px'; recentBtn.style.top='12px'; recentBtn.style.zIndex=10000; recentBtn.style.padding='8px 10px'; recentBtn.style.borderRadius='8px'; recentBtn.style.background='#007bff'; recentBtn.style.color='#fff'; recentBtn.style.border='none';
+      recentBtn.onclick = fetchRecentNotifications;
+      document.body.appendChild(recentBtn);
+    } catch(e) { /* ignore */ }
 
   // attach sort change handler
   const sortSelect = document.getElementById('sort-select');
